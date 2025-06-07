@@ -178,6 +178,15 @@ install_localstack() {
     # Create LocalStack configuration
     mkdir -p /etc/localstack
     
+    # Clean up any existing LocalStack temp directories
+    log "INFO" "Cleaning up old LocalStack temp directories..."
+    find /tmp -maxdepth 1 -name "localstack-*" -type d -mtime +1 -exec rm -rf {} \; 2>/dev/null || true
+    
+    # Create LocalStack temp directory with unique subdirectory
+    LOCALSTACK_TMP_DIR="/tmp/localstack-${RANDOM}"
+    mkdir -p "$LOCALSTACK_TMP_DIR"
+    chmod 777 "$LOCALSTACK_TMP_DIR"
+    
     # Create docker-compose file for LocalStack
     cat > /etc/localstack/docker-compose.yml << EOF
 version: '3.8'
@@ -195,7 +204,7 @@ services:
       - DATA_DIR=/var/lib/localstack
       - LAMBDA_EXECUTOR=docker
       - DOCKER_HOST=unix:///var/run/docker.sock
-      - HOST_TMP_FOLDER=/tmp/localstack
+      - HOST_TMP_FOLDER=${LOCALSTACK_TMP_DIR}
       - DISABLE_CORS_CHECKS=0
       - PERSISTENCE=1
 EOF
@@ -212,7 +221,7 @@ EOF
     volumes:
       - "${LOCALSTACK_DATA_DIR}:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
-      - "/tmp/localstack:/tmp/localstack"
+      - "${LOCALSTACK_TMP_DIR}:${LOCALSTACK_TMP_DIR}"
     networks:
       - localstack-net
     restart: unless-stopped
@@ -285,7 +294,11 @@ EOF
     # Start LocalStack
     log "INFO" "Starting LocalStack..."
     cd /etc/localstack
-    docker-compose up -d
+    if command -v docker-compose &>/dev/null; then
+        docker-compose up -d
+    else
+        docker compose up -d
+    fi
 
     # Wait for LocalStack to be healthy
     log "INFO" "Waiting for LocalStack to be ready..."
@@ -413,7 +426,31 @@ EOF
 
     # Create default htpasswd file (username: admin, password: admin)
     mkdir -p "$REGISTRY_DATA_DIR/auth"
-    docker run --rm --entrypoint htpasswd registry:2 -Bbn admin admin > "$REGISTRY_DATA_DIR/auth/htpasswd"
+    
+    # Install htpasswd if not available
+    if ! command -v htpasswd &>/dev/null; then
+        log "INFO" "Installing htpasswd utility..."
+        case $OS in
+            ubuntu|debian)
+                apt-get update -qq
+                apt-get install -y apache2-utils
+                ;;
+            centos|rhel|fedora)
+                yum install -y httpd-tools
+                ;;
+            *)
+                log "WARN" "Cannot install htpasswd automatically, using Docker instead"
+                ;;
+        esac
+    fi
+    
+    # Generate htpasswd file
+    if command -v htpasswd &>/dev/null; then
+        htpasswd -Bbn admin admin > "$REGISTRY_DATA_DIR/auth/htpasswd"
+    else
+        # Fallback to using Docker registry image
+        docker run --rm --entrypoint htpasswd registry:2.7 -Bbn admin admin > "$REGISTRY_DATA_DIR/auth/htpasswd"
+    fi
 
     # Configure Docker to trust the registry certificate
     mkdir -p /etc/docker/certs.d/localhost:${REGISTRY_PORT}
@@ -422,7 +459,11 @@ EOF
     # Start registry
     log "INFO" "Starting Docker Registry..."
     cd /etc/docker
-    docker-compose -f registry-compose.yml up -d
+    if command -v docker-compose &>/dev/null; then
+        docker-compose -f registry-compose.yml up -d
+    else
+        docker compose -f registry-compose.yml up -d
+    fi
 
     # Wait for registry to be healthy
     log "INFO" "Waiting for Docker Registry to be ready..."
