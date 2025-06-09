@@ -156,24 +156,24 @@ check_system() {
 
 # Get latest version from GitHub
 get_latest_version() {
-    log_info "Fetching latest version information..."
+    log_info "Fetching latest version information..." >&2
     
     local version=""
     
     # Try npm registry first as it's more reliable for npm packages
     if command -v npm &>/dev/null; then
-        log_debug "Checking npm registry for latest version..."
+        log_debug "Checking npm registry for latest version..." >&2
         version=$(npm view $NPM_PACKAGE version 2>/dev/null || true)
     fi
     
     if [[ -z "$version" ]] && command -v curl &>/dev/null; then
-        log_debug "Trying npm registry via curl..."
+        log_debug "Trying npm registry via curl..." >&2
         version=$(curl -s https://registry.npmjs.org/$NPM_PACKAGE 2>/dev/null | grep '"latest"' | cut -d'"' -f4 || true)
     fi
     
     if [[ -z "$version" ]]; then
         # Try GitHub API as fallback
-        log_debug "Trying GitHub API..."
+        log_debug "Trying GitHub API..." >&2
         local api_url="$GITHUB_API/releases/latest"
         
         if command -v curl &>/dev/null; then
@@ -184,9 +184,9 @@ get_latest_version() {
     fi
     
     if [[ -z "$version" ]]; then
-        log_warn "Could not determine latest version automatically"
-        log_warn "Please specify a version with --version flag"
-        log_warn "You can check available versions at: https://www.npmjs.com/package/$NPM_PACKAGE"
+        log_warn "Could not determine latest version automatically" >&2
+        log_warn "Please specify a version with --version flag" >&2
+        log_warn "You can check available versions at: https://www.npmjs.com/package/$NPM_PACKAGE" >&2
         error_exit "Failed to fetch latest version"
     fi
     
@@ -198,7 +198,7 @@ install_claude_code() {
     local platform="$1"
     local version="$2"
     
-    log_info "Installing Claude Code $version for $platform..."
+    log_info "Installing Claude Code $version for $platform..." >&2
     
     # Create temporary directory
     local temp_dir=$(mktemp -d)
@@ -206,12 +206,12 @@ install_claude_code() {
     
     # Method 1: Try npm install directly first
     if command -v npm &>/dev/null; then
-        log_info "Installing via npm..."
+        log_info "Installing via npm..." >&2
         
         if [[ "$USER_INSTALL" == "true" ]]; then
             # User-specific installation
             if npm install -g $NPM_PACKAGE@$version --prefix="$HOME/.local"; then
-                log_info "Claude Code installed successfully"
+                log_info "Claude Code installed successfully" >&2
                 return 0
             fi
         else
@@ -219,13 +219,13 @@ install_claude_code() {
             if npm install -g $NPM_PACKAGE@$version; then
                 # Check if claude is in the expected location
                 if [[ -f "/usr/local/bin/claude" ]] || which claude &>/dev/null; then
-                    log_info "Claude Code installed successfully"
+                    log_info "Claude Code installed successfully" >&2
                     return 0
                 fi
             fi
         fi
         
-        log_warn "npm installation failed, trying alternative method..."
+        log_warn "npm installation failed, trying alternative method..." >&2
     fi
     
     # If we reach here, installation failed
@@ -235,7 +235,7 @@ install_claude_code() {
 # Setup user installation
 setup_user_install() {
     INSTALL_PATH="$HOME/.local/bin"
-    log_info "Setting up user installation to $INSTALL_PATH"
+    log_info "Setting up user installation to $INSTALL_PATH" >&2
     
     # Create directory if it doesn't exist
     mkdir -p "$INSTALL_PATH"
@@ -244,7 +244,7 @@ setup_user_install() {
 # Configure API key
 configure_api_key() {
     if [[ -n "$API_KEY" ]]; then
-        log_info "Configuring API key..."
+        log_info "Configuring API key..." >&2
         
         # Create config directory
         local config_dir="$HOME/.claude"
@@ -254,11 +254,11 @@ configure_api_key() {
         echo "ANTHROPIC_API_KEY=$API_KEY" > "$config_dir/.env"
         chmod 600 "$config_dir/.env"
         
-        log_info "API key configured successfully"
+        log_info "API key configured successfully" >&2
     else
-        log_warn "No API key provided. You'll need to set it later with:"
-        log_warn "  claude --api-key YOUR_KEY"
-        log_warn "Or set the ANTHROPIC_API_KEY environment variable"
+        log_warn "No API key provided. You'll need to set it later with:" >&2
+        log_warn "  claude --api-key YOUR_KEY" >&2
+        log_warn "Or set the ANTHROPIC_API_KEY environment variable" >&2
     fi
 }
 
@@ -268,11 +268,11 @@ add_to_path() {
         return
     fi
     
-    log_info "Checking PATH configuration..."
+    log_info "Checking PATH configuration..." >&2
     
     # Check if already in PATH
     if echo "$PATH" | grep -q "$INSTALL_PATH"; then
-        log_debug "$INSTALL_PATH is already in PATH"
+        log_debug "$INSTALL_PATH is already in PATH" >&2
         return
     fi
     
@@ -289,7 +289,7 @@ add_to_path() {
     fi
     
     if [[ "$USER_INSTALL" == "true" ]] && [[ ${#shell_configs[@]} -gt 0 ]]; then
-        log_info "Adding $INSTALL_PATH to PATH in shell configuration..."
+        log_info "Adding $INSTALL_PATH to PATH in shell configuration..." >&2
         
         local path_line='export PATH="$HOME/.local/bin:$PATH"'
         
@@ -298,31 +298,31 @@ add_to_path() {
                 echo "" >> "$config"
                 echo "# Added by Claude Code installer" >> "$config"
                 echo "$path_line" >> "$config"
-                log_debug "Updated $config"
+                log_debug "Updated $config" >&2
             fi
         done
         
-        log_warn "PATH has been updated. Run 'source ~/.bashrc' or start a new shell to use claude."
+        log_warn "PATH has been updated. Run 'source ~/.bashrc' or start a new shell to use claude." >&2
     fi
 }
 
 # Check Node.js installation
 check_nodejs() {
     if ! command -v node &>/dev/null && ! command -v npm &>/dev/null; then
-        log_error "Node.js is not installed. Claude Code requires Node.js 18 or higher."
-        log_error "Install Node.js with:"
-        log_error "  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -"
-        log_error "  sudo apt-get install -y nodejs"
-        log_error ""
-        log_error "Or use your system's package manager."
+        log_error "Node.js is not installed. Claude Code requires Node.js 18 or higher." >&2
+        log_error "Install Node.js with:" >&2
+        log_error "  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -" >&2
+        log_error "  sudo apt-get install -y nodejs" >&2
+        log_error "" >&2
+        log_error "Or use your system's package manager." >&2
         return 1
     fi
     
     # Check Node.js version
     local node_version=$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)
     if [[ -n "$node_version" ]] && [[ "$node_version" -lt 18 ]]; then
-        log_error "Claude Code requires Node.js 18 or higher. You have Node.js v$node_version"
-        log_error "Please upgrade Node.js before continuing."
+        log_error "Claude Code requires Node.js 18 or higher. You have Node.js v$node_version" >&2
+        log_error "Please upgrade Node.js before continuing." >&2
         return 1
     fi
     
@@ -331,7 +331,7 @@ check_nodejs() {
 
 # Verify installation
 verify_installation() {
-    log_info "Verifying installation..."
+    log_info "Verifying installation..." >&2
     
     local claude_cmd=""
     
@@ -352,7 +352,7 @@ verify_installation() {
         fi
     fi
     
-    log_info "Claude Code installed successfully!"
+    log_info "Claude Code installed successfully!" >&2
 }
 
 # Print usage examples
@@ -484,7 +484,7 @@ parse_args() {
 
 # Main function
 main() {
-    log_info "Starting Claude Code installation"
+    log_info "Starting Claude Code installation" >&2
     
     # Parse arguments
     parse_args "$@"
