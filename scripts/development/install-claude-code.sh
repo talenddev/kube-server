@@ -67,6 +67,8 @@ API_KEY=""
 MODIFY_PATH=true
 PREVIEW=false
 VERBOSE=false
+# Claude Code is distributed via npm
+NPM_PACKAGE="@anthropic-ai/claude-code"
 GITHUB_API="https://api.github.com/repos/anthropics/claude-code"
 DOWNLOAD_BASE="https://github.com/anthropics/claude-code/releases/download"
 
@@ -112,7 +114,7 @@ error_exit() {
 
 # Check system compatibility
 check_system() {
-    log_info "Checking system compatibility..."
+    log_info "Checking system compatibility..." >&2
     
     # Detect OS and architecture
     local os=""
@@ -142,7 +144,7 @@ check_system() {
             ;;
     esac
     
-    log_debug "Detected: $os-$arch"
+    log_debug "Detected: $os-$arch" >&2
     
     # Check for required tools
     if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
@@ -156,24 +158,35 @@ check_system() {
 get_latest_version() {
     log_info "Fetching latest version information..."
     
-    local api_url="$GITHUB_API/releases/latest"
     local version=""
     
-    if command -v curl &>/dev/null; then
-        version=$(curl -s "$api_url" | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
-    else
-        version=$(wget -qO- "$api_url" | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
+    # Try npm registry first as it's more reliable for npm packages
+    if command -v npm &>/dev/null; then
+        log_debug "Checking npm registry for latest version..."
+        version=$(npm view $NPM_PACKAGE version 2>/dev/null || true)
+    fi
+    
+    if [[ -z "$version" ]] && command -v curl &>/dev/null; then
+        log_debug "Trying npm registry via curl..."
+        version=$(curl -s https://registry.npmjs.org/$NPM_PACKAGE 2>/dev/null | grep '"latest"' | cut -d'"' -f4 || true)
     fi
     
     if [[ -z "$version" ]]; then
-        # Fallback to npm registry if GitHub API fails
-        log_debug "GitHub API failed, trying npm registry..."
+        # Try GitHub API as fallback
+        log_debug "Trying GitHub API..."
+        local api_url="$GITHUB_API/releases/latest"
+        
         if command -v curl &>/dev/null; then
-            version=$(curl -s https://registry.npmjs.org/@anthropic/claude-code | grep '"latest"' | cut -d'"' -f4)
+            version=$(curl -s "$api_url" 2>/dev/null | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || true)
+        else
+            version=$(wget -qO- "$api_url" 2>/dev/null | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || true)
         fi
     fi
     
     if [[ -z "$version" ]]; then
+        log_warn "Could not determine latest version automatically"
+        log_warn "Please specify a version with --version flag"
+        log_warn "You can check available versions at: https://www.npmjs.com/package/$NPM_PACKAGE"
         error_exit "Failed to fetch latest version"
     fi
     
@@ -191,89 +204,32 @@ install_claude_code() {
     local temp_dir=$(mktemp -d)
     trap "rm -rf $temp_dir" EXIT
     
-    # Method 1: Try npx first (most reliable)
-    if command -v npx &>/dev/null; then
-        log_info "Installing via npx..."
-        
-        cd "$temp_dir"
-        if npx -y @anthropic/claude-code@$version --help &>/dev/null; then
-            # Find the installed binary
-            local npx_bin=$(which claude 2>/dev/null || find ~/.npm/_npx -name "claude" -type f 2>/dev/null | head -1)
-            
-            if [[ -n "$npx_bin" && -f "$npx_bin" ]]; then
-                log_info "Copying Claude Code to $INSTALL_PATH..."
-                cp "$npx_bin" "$INSTALL_PATH/claude"
-                chmod +x "$INSTALL_PATH/claude"
-                return 0
-            fi
-        fi
-        
-        log_warn "npx installation failed, trying alternative method..."
-    fi
-    
-    # Method 2: Try direct binary download
-    # Construct download URL (this assumes binaries are published)
-    local filename=""
-    case "$platform" in
-        linux-amd64)
-            filename="claude-linux-amd64"
-            ;;
-        linux-arm64)
-            filename="claude-linux-arm64"
-            ;;
-        darwin-amd64)
-            filename="claude-darwin-amd64"
-            ;;
-        darwin-arm64)
-            filename="claude-darwin-arm64"
-            ;;
-    esac
-    
-    local download_url="$DOWNLOAD_BASE/v$version/$filename"
-    log_debug "Trying direct download from: $download_url"
-    
-    # Try to download binary directly
-    if command -v curl &>/dev/null; then
-        if curl -L -f -o "$temp_dir/claude" "$download_url" 2>/dev/null; then
-            chmod +x "$temp_dir/claude"
-            cp "$temp_dir/claude" "$INSTALL_PATH/claude"
-            return 0
-        fi
-    fi
-    
-    # Method 3: Install via npm globally
+    # Method 1: Try npm install directly first
     if command -v npm &>/dev/null; then
         log_info "Installing via npm..."
         
         if [[ "$USER_INSTALL" == "true" ]]; then
-            npm install -g @anthropic/claude-code@$version --prefix="$HOME/.local"
-            
-            # Find and copy the binary
-            local npm_bin="$HOME/.local/bin/claude"
-            if [[ -f "$npm_bin" ]]; then
-                if [[ "$INSTALL_PATH" != "$HOME/.local/bin" ]]; then
-                    cp "$npm_bin" "$INSTALL_PATH/claude"
-                fi
-                chmod +x "$INSTALL_PATH/claude"
+            # User-specific installation
+            if npm install -g $NPM_PACKAGE@$version --prefix="$HOME/.local"; then
+                log_info "Claude Code installed successfully"
                 return 0
             fi
         else
-            # System-wide npm install
-            if npm install -g @anthropic/claude-code@$version; then
-                # Find the installed binary
-                local npm_bin=$(which claude 2>/dev/null)
-                if [[ -n "$npm_bin" && -f "$npm_bin" ]]; then
-                    if [[ "$INSTALL_PATH" != "$(dirname "$npm_bin")" ]]; then
-                        cp "$npm_bin" "$INSTALL_PATH/claude"
-                        chmod +x "$INSTALL_PATH/claude"
-                    fi
+            # System-wide installation
+            if npm install -g $NPM_PACKAGE@$version; then
+                # Check if claude is in the expected location
+                if [[ -f "/usr/local/bin/claude" ]] || which claude &>/dev/null; then
+                    log_info "Claude Code installed successfully"
                     return 0
                 fi
             fi
         fi
+        
+        log_warn "npm installation failed, trying alternative method..."
     fi
     
-    error_exit "Failed to install Claude Code. Please ensure Node.js and npm are installed."
+    # If we reach here, installation failed
+    error_exit "Failed to install Claude Code. Please ensure Node.js 18+ and npm are installed."
 }
 
 # Setup user installation
@@ -353,14 +309,23 @@ add_to_path() {
 # Check Node.js installation
 check_nodejs() {
     if ! command -v node &>/dev/null && ! command -v npm &>/dev/null; then
-        log_warn "Node.js is not installed. Claude Code works best with Node.js."
-        log_warn "Install Node.js with:"
-        log_warn "  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -"
-        log_warn "  sudo apt-get install -y nodejs"
-        log_warn ""
-        log_warn "Or use your system's package manager."
+        log_error "Node.js is not installed. Claude Code requires Node.js 18 or higher."
+        log_error "Install Node.js with:"
+        log_error "  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -"
+        log_error "  sudo apt-get install -y nodejs"
+        log_error ""
+        log_error "Or use your system's package manager."
         return 1
     fi
+    
+    # Check Node.js version
+    local node_version=$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)
+    if [[ -n "$node_version" ]] && [[ "$node_version" -lt 18 ]]; then
+        log_error "Claude Code requires Node.js 18 or higher. You have Node.js v$node_version"
+        log_error "Please upgrade Node.js before continuing."
+        return 1
+    fi
+    
     return 0
 }
 
@@ -368,11 +333,22 @@ check_nodejs() {
 verify_installation() {
     log_info "Verifying installation..."
     
+    local claude_cmd=""
+    
+    # Find the claude command
+    if [[ -f "$INSTALL_PATH/claude" ]]; then
+        claude_cmd="$INSTALL_PATH/claude"
+    elif command -v claude &>/dev/null; then
+        claude_cmd="claude"
+    else
+        error_exit "Claude Code binary not found after installation"
+    fi
+    
     # Check if claude is accessible
-    if ! "$INSTALL_PATH/claude" --version &>/dev/null; then
+    if ! "$claude_cmd" --version &>/dev/null; then
         # Try without version flag
-        if ! "$INSTALL_PATH/claude" --help &>/dev/null; then
-            error_exit "Installation verification failed"
+        if ! "$claude_cmd" --help &>/dev/null; then
+            error_exit "Installation verification failed - claude command not working"
         fi
     fi
     
@@ -522,7 +498,9 @@ main() {
     local platform=$(check_system)
     
     # Check for Node.js
-    check_nodejs
+    if ! check_nodejs; then
+        error_exit "Node.js 18+ is required for Claude Code installation"
+    fi
     
     # Get version
     local version="$INSTALL_VERSION"
