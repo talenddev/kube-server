@@ -52,17 +52,17 @@
 #   duckdb       - DuckDB
 #
 # Examples:
-#   # Install latest dbt-core with PostgreSQL adapter
-#   ./install-dbt-core.sh --adapter postgres
+#   # Install in virtual environment (recommended)
+#   ./install-dbt-core.sh --venv ~/dbt-env --adapter postgres
 #
-#   # Install in virtual environment
-#   ./install-dbt-core.sh --venv ~/dbt-env --adapter snowflake
+#   # Install latest dbt-core with PostgreSQL adapter globally
+#   sudo ./install-dbt-core.sh --global --adapter postgres
 #
-#   # Install specific version with multiple adapters
-#   ./install-dbt-core.sh --version 1.7.0 --adapter postgres,bigquery
+#   # Install specific version with multiple adapters in venv
+#   ./install-dbt-core.sh --venv ~/dbt-env --version 1.7.0 --adapter postgres,bigquery
 #
 #   # Install with system dependencies
-#   sudo ./install-dbt-core.sh --with-deps --adapter postgres
+#   sudo ./install-dbt-core.sh --global --with-deps --adapter postgres
 #
 # Post-Installation:
 #   - Verify: dbt --version
@@ -441,6 +441,26 @@ install_dbt() {
         pip_cmd="$pip_cmd --upgrade"
     fi
     
+    # Handle externally-managed environment (PEP 668)
+    local pip_flags=""
+    if [[ "$GLOBAL_INSTALL" == "true" ]] && [[ -z "$VENV_PATH" ]]; then
+        # Check if we're in an externally managed environment
+        if "$python_cmd" -c "import sys; exit(0 if hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix else 1)" 2>/dev/null; then
+            # We're in a virtual environment, no need for special flags
+            log_debug "Installing in virtual environment"
+        else
+            # Check if externally managed
+            local python_lib_path=$("$python_cmd" -c "import sys; print(sys.path[-1])" 2>/dev/null)
+            if [[ -f "$python_lib_path/EXTERNALLY-MANAGED" ]]; then
+                log_warn "Detected externally-managed Python environment"
+                log_warn "Using --break-system-packages flag (not recommended for production)"
+                pip_flags="--break-system-packages"
+            fi
+        fi
+    fi
+    
+    pip_cmd="$pip_cmd $pip_flags"
+    
     # Install dbt-core
     local package="dbt-core"
     if [[ -n "$version" ]]; then
@@ -448,7 +468,13 @@ install_dbt() {
     fi
     
     log_info "Installing $package..."
-    $pip_cmd "$package" || error_exit "Failed to install dbt-core"
+    $pip_cmd "$package" || {
+        if [[ -z "$VENV_PATH" ]] && [[ "$GLOBAL_INSTALL" != "true" ]]; then
+            log_error "Installation failed. Consider using --venv option to install in a virtual environment"
+            log_error "Example: $0 --venv ~/dbt-env --adapter postgres"
+        fi
+        error_exit "Failed to install dbt-core"
+    }
     
     # Install adapters
     for adapter in "${ADAPTERS[@]}"; do
@@ -612,17 +638,17 @@ Database Adapters:
   postgres, snowflake, bigquery, redshift, databricks, spark, trino, clickhouse
 
 Examples:
-  # Install with PostgreSQL adapter
-  $SCRIPT_NAME --adapter postgres
+  # Install in virtual environment (recommended)
+  $SCRIPT_NAME --venv ~/dbt-env --adapter postgres
 
-  # Install in virtual environment
-  $SCRIPT_NAME --venv ~/dbt-env --adapter snowflake
+  # Install globally with PostgreSQL adapter
+  sudo $SCRIPT_NAME --global --adapter postgres
 
-  # Install specific version with multiple adapters
-  $SCRIPT_NAME --version 1.7.0 --adapter postgres,bigquery
+  # Install specific version with multiple adapters in venv
+  $SCRIPT_NAME --venv ~/dbt-env --version 1.7.0 --adapter postgres,bigquery
 
   # Install with system dependencies
-  sudo $SCRIPT_NAME --with-deps --adapter postgres
+  sudo $SCRIPT_NAME --global --with-deps --adapter postgres
 EOF
 }
 
