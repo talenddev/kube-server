@@ -110,8 +110,6 @@ error_exit() {
 
 # Check system compatibility
 check_system() {
-    log_info "Checking system compatibility..."
-    
     # Detect OS and architecture
     local os=""
     local arch=""
@@ -140,8 +138,6 @@ check_system() {
             ;;
     esac
     
-    log_debug "Detected: $os-$arch"
-    
     # Check for required tools
     if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
         error_exit "Either curl or wget is required for downloading"
@@ -152,8 +148,6 @@ check_system() {
 
 # Get latest version from GitHub
 get_latest_version() {
-    log_info "Fetching latest version information..."
-    
     local api_url="$GITHUB_API/releases/latest"
     local version=""
     
@@ -418,12 +412,16 @@ main() {
     fi
     
     # Check system compatibility
+    log_info "Checking system compatibility..."
     local platform=$(check_system)
+    log_debug "Detected platform: $platform"
     
     # Get version
     local version="$INSTALL_VERSION"
     if [[ "$version" == "latest" ]]; then
+        log_info "Fetching latest version information..."
         version=$(get_latest_version)
+        log_debug "Latest version: $version"
     fi
     
     # Install uv
