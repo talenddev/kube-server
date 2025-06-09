@@ -289,7 +289,7 @@ setup_venv() {
     source "$VENV_PATH/bin/activate" || error_exit "Failed to activate virtual environment"
     
     # Upgrade pip
-    pip install --upgrade pip
+    "$python_cmd" -m pip install --upgrade pip
     
     log_info "Virtual environment created and activated"
 }
@@ -343,6 +343,12 @@ validate_adapters() {
 install_dbt() {
     log_info "Installing dbt Core..."
     
+    # Get python command
+    local python_cmd="python3"
+    if [[ -n "$PYTHON_VERSION" ]]; then
+        python_cmd="python$PYTHON_VERSION"
+    fi
+    
     # Determine version
     local version="$DBT_VERSION"
     if [[ "$version" == "latest" ]]; then
@@ -356,7 +362,7 @@ install_dbt() {
     fi
     
     # Build installation command
-    local pip_cmd="pip install"
+    local pip_cmd="$python_cmd -m pip install"
     
     if [[ "$UPGRADE" == "true" ]]; then
         pip_cmd="$pip_cmd --upgrade"
