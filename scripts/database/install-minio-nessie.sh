@@ -9,7 +9,7 @@
 # Documentation
 # =============
 # Description:
-#   Installs MinIO (S3-compatible object storage) and Nessie (data catalog)
+#   Installs MinIO (S3-compatible object storage) and Nessie (data catalog with Iceberg support)
 #   using Docker containers with persistent storage and secure configuration.
 #
 # Dependencies:
@@ -58,9 +58,10 @@
 #   1. MinIO Console: http://localhost:9001
 #   2. MinIO API: http://localhost:9000
 #   3. Nessie API: http://localhost:19120/api/v1
-#   4. Docker logs: docker-compose logs -f
-#   5. Stop services: docker-compose down
-#   6. Start services: docker-compose up -d
+#   4. Nessie Iceberg Catalog: http://localhost:19120/iceberg
+#   5. Docker logs: docker-compose logs -f
+#   6. Stop services: docker-compose down
+#   7. Start services: docker-compose up -d
 
 set -euo pipefail
 
@@ -181,11 +182,17 @@ services:
       QUARKUS_DATASOURCE_USERNAME: ${POSTGRES_USER}
       QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      # Iceberg Catalog Configuration
+      NESSIE_CATALOG_SERVICE_ENABLED: "true"
       NESSIE_CATALOG_DEFAULT_WAREHOUSE: s3://warehouse
+      NESSIE_CATALOG_ICEBERG_DEFAULT_WAREHOUSE_LOCATION: s3://warehouse
+      NESSIE_CATALOG_ICEBERG_ENABLED: "true"
+      # S3 Configuration for Iceberg
       NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_ENDPOINT: http://minio:9000
       NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_PATH_STYLE_ACCESS: "true"
       NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_ACCESS_KEY: ${MINIO_ROOT_USER}
       NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_REGION: us-east-1
     depends_on:
       postgres:
         condition: service_healthy
@@ -300,6 +307,7 @@ echo ""
 echo "MinIO Console: http://localhost:${MINIO_CONSOLE_PORT}"
 echo "MinIO API: http://localhost:${MINIO_PORT}"
 echo "Nessie API: http://localhost:${NESSIE_PORT}/api/v1"
+echo "Nessie Iceberg Catalog: http://localhost:${NESSIE_PORT}/iceberg"
 EOF
     chmod +x /usr/local/bin/minio-nessie-status
     
@@ -345,6 +353,7 @@ MinIO Console URL: http://localhost:${MINIO_CONSOLE_PORT}
 
 ## Nessie Configuration
 Nessie API URL: http://localhost:${NESSIE_PORT}/api/v1
+Nessie Iceberg Catalog: http://localhost:${NESSIE_PORT}/iceberg
 Nessie Catalog: ${NESSIE_CATALOG}
 
 ## PostgreSQL (Nessie Backend)
@@ -464,8 +473,9 @@ main() {
     echo "- MinIO object storage installed and running"
     echo "  - API: http://localhost:${MINIO_PORT}"
     echo "  - Console: http://localhost:${MINIO_CONSOLE_PORT}"
-    echo "- Nessie data catalog installed and running"
+    echo "- Nessie data catalog with Iceberg support installed and running"
     echo "  - API: http://localhost:${NESSIE_PORT}/api/v1"
+    echo "  - Iceberg Catalog: http://localhost:${NESSIE_PORT}/iceberg"
     echo "- Data directories:"
     echo "  - MinIO: ${MINIO_DATA_DIR}"
     echo "  - PostgreSQL: ${POSTGRES_DATA_DIR}"
