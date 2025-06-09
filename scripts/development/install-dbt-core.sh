@@ -23,7 +23,7 @@
 #
 # System Requirements:
 #   - Python 3.8+ (will be installed if not available)
-#   - pip package manager
+#   - pip package manager (will be installed if not available)
 #   - Git (for package management)
 #
 # Usage:
@@ -211,6 +211,75 @@ install_dependencies() {
     fi
 }
 
+# Check and install pip if needed
+check_pip() {
+    local python_cmd="$1"
+    
+    log_info "Checking pip installation..."
+    
+    # Check if pip module is available
+    if ! "$python_cmd" -m pip --version &>/dev/null; then
+        log_info "pip not found. Installing pip..."
+        install_pip "$python_cmd"
+    else
+        log_debug "pip is available"
+    fi
+}
+
+# Install pip
+install_pip() {
+    local python_cmd="$1"
+    
+    log_info "Installing pip..."
+    
+    # Try different methods to install pip
+    if command -v apt-get &>/dev/null; then
+        apt-get update
+        if [[ -n "$PYTHON_VERSION" ]]; then
+            apt-get install -y "python$PYTHON_VERSION-pip"
+        else
+            apt-get install -y python3-pip
+        fi
+    elif command -v yum &>/dev/null; then
+        if [[ -n "$PYTHON_VERSION" ]]; then
+            yum install -y "python$PYTHON_VERSION-pip"
+        else
+            yum install -y python3-pip
+        fi
+    elif command -v dnf &>/dev/null; then
+        if [[ -n "$PYTHON_VERSION" ]]; then
+            dnf install -y "python$PYTHON_VERSION-pip"
+        else
+            dnf install -y python3-pip
+        fi
+    elif command -v brew &>/dev/null; then
+        # pip usually comes with Python on macOS when installed via brew
+        log_warn "pip should be included with Python installation on macOS"
+    else
+        # Fall back to get-pip.py method
+        log_info "Using get-pip.py bootstrap method..."
+        local temp_dir=$(mktemp -d)
+        trap "rm -rf $temp_dir" EXIT
+        
+        if command -v curl &>/dev/null; then
+            curl -o "$temp_dir/get-pip.py" https://bootstrap.pypa.io/get-pip.py
+        elif command -v wget &>/dev/null; then
+            wget -O "$temp_dir/get-pip.py" https://bootstrap.pypa.io/get-pip.py
+        else
+            error_exit "Cannot download get-pip.py. Please install pip manually."
+        fi
+        
+        "$python_cmd" "$temp_dir/get-pip.py" || error_exit "Failed to install pip using get-pip.py"
+    fi
+    
+    # Verify pip installation
+    if ! "$python_cmd" -m pip --version &>/dev/null; then
+        error_exit "pip installation failed"
+    fi
+    
+    log_info "pip installed successfully"
+}
+
 # Check Python installation
 check_python() {
     log_info "Checking Python installation..."
@@ -235,6 +304,10 @@ check_python() {
     fi
     
     log_debug "Python version: $py_version"
+    
+    # Check and install pip if needed
+    check_pip "$python_cmd"
+    
     echo "$python_cmd"
 }
 
